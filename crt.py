@@ -30,9 +30,10 @@ class Datreader:
                 nChannels, samplingRate = self.get_xml_info(dirname, datname)
                 dati = [datname, datsize, nChannels, samplingRate]
                 datinfo[zipfile].append( dati )
-        print("datinfo is")
+        # print("datinfo is")
         self.datinfo = datinfo
-        pp.pprint(datinfo)
+        # pp.pprint(datinfo)
+        self.calculate_rt()
 
     def get_xml_info(self, dirname, datname):
         xmlname = datname[0:-3] + "xml"
@@ -45,6 +46,22 @@ class Datreader:
         nChannels = int(root.find('./acquisitionSystem/nChannels').text)
         samplingRate = int(root.find('./acquisitionSystem/samplingRate').text)
         return(nChannels, samplingRate)
+
+    def calculate_rt(self):
+        # calculate recording time
+        rctimes = {}
+        for xmldir in self.datinfo:
+            rt = 0.0
+            for dati in self.datinfo[xmldir]:
+                datname, datsize, nChannels, samplingRate = dati
+                if nChannels is not None:
+                    timeMin = datsize / (2 * nChannels * samplingRate * 60.0)
+                    rt += timeMin
+            rctimes[xmldir] = rt
+        self.rctimes = rctimes
+        print("rctimes is:")
+        for xmldir in sorted(self.rctimes):
+            print("%s\t%s" % (xmldir, round(rctimes[xmldir], 2)))
 
 
 def main():
