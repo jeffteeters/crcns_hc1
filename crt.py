@@ -9,6 +9,7 @@ import pandas as pd
 
 
 class ExcelData:
+    # loads data from IntraExtra.xls
     def __init__(self, filename="IntraExtra.xls"):
         self.filename = filename
         dfs = pd.read_excel(filename, sheet_name="Sheet1")
@@ -31,51 +32,82 @@ class ExcelData:
 
 
 class Recording:
+    # stores info about particular cell (including all .dat files for that cell)
+
+    num_intraExtra = 0  # number of recordings that have a row in intraExtra.xls file
+
     def __init__(self, zipfile, ie_data):
         self.zipfile = zipfile
         self.datfiles = []
         self.channels_consistent = None
         self.recording_time = None
         self.intraExtra_rt = None  # recording time in IntraExtra spreadsheet, or None
-        self.ie_data = ie_data
+        self.ied = ie_data.get_data(self.zipfile)
+        if self.ied:
+            Recording.num_intraExtra += 1
+        self.stats = None
 
     def add_dat_file(self, name, size, nChannels, samplingRate):
-        self.datfiles.append( [name, size, nChannels, samplingRate])
+        if nChannels is not None:
+            timeMin = size / (2 * nChannels * samplingRate * 60.0)
+        else:
+            timeMin = 0.0
+        self.datfiles.append( [name, size, nChannels, samplingRate, timeMin])
 
     def calculate_stats(self):
+        if self.stats is not None:
+            # already have stats
+            return
         rt = 0.0
-        cur_nChannels = None
+        first_nChannels = None
         channels_consistent = True
         for dati in self.datfiles:
-            name, size, nChannels, samplingRate = dati
+            name, size, nChannels, samplingRate, timeMin = dati
             if nChannels is not None:
-                timeMin = size / (2 * nChannels * samplingRate * 60.0)
                 rt += timeMin
-                if cur_nChannels is None:
-                    cur_nChannels = nChannels
+                if first_nChannels is None:
+                    first_nChannels = nChannels
                 else:
-                    if cur_nChannels != nChannels:
+                    if first_nChannels != nChannels:
                         channels_consistent = False
-                        print("nChannels in %s is not consistent, %s vs %s" % (name, cur_nChannels, nChannels))
         self.stats = {
             "num_files": len(self.datfiles),
             "rt": rt,
+            "first_nChannels": first_nChannels,
             "channels_consistent": channels_consistent,
             }
 
-    def display(self):
+    def display(self, idstr=""):
+        # idstr used to display count before the cell name
         self.calculate_stats()
-        print("\n%s files:" % self.zipfile)
-        print("name\tsize\tchannels\tsamplingRate")
+        print("\n%s%s" % (idstr, self.zipfile))
+        print("name\tsize\tchannels\tsamplingRate\tminutes")
         for df in self.datfiles:
-            print("%s\t%s\t%s\t%s" % (df[0], df[1], df[2], df[3]))
-        print("%s files, total time=%s, channels_consistent=%s"% (self.stats["num_files"], round(self.stats["rt"],2),
-            self.stats["channels_consistent"]))
-        ied = self.ie_data.get_data(self.zipfile)
-        if ied:
-            print("intraExtra values: %s" % ied)
-        else:
-            print("Not in IntraExtra")
+            print("%s\t%s\t%s\t%s\t%s" % (df[0], df[1], df[2], df[3], round(df[4], 2)))
+        cc_msg = "" if self.stats["channels_consistent"] else ", number of channels inconsistent"
+        xm_msg = " (xml file missing)" if self.stats["first_nChannels"] is None else ""
+        print("%s files, total time=%s%s%s"% (self.stats["num_files"], round(self.stats["rt"],2), cc_msg, xm_msg))
+        if self.ied:
+            mismatch = []
+            mismatch.append("recording time %s" % self.ied["recording time"])
+            if not (self.ied["# of files"].isdigit() and int(self.ied["# of files"]) == self.stats["num_files"]):
+                mismatch.append("#_of_files '%s'" % self.ied["# of files"])
+            if not self.stats["channels_consistent"] or self.stats["first_nChannels"] != self.ied["nChannels"]:
+                mismatch.append("nChannels %s" % self.ied["nChannels"])
+            mismatch = ", ".join(mismatch)
+            print("differing intraExtra values: %s" % mismatch)
+
+    def display_recTimeDiff_header():
+        print("\nintraExtra.xls recording time difference (times are in minutes)")
+        print("cell\tintraExtra\tactual\tdiff")
+
+    def display_recTimeDiff(self):
+        self.calculate_stats()
+        if self.ied is not None:
+            ied_rt = self.ied["recording time"]
+            act_rt = self.stats["rt"]
+            diff = ied_rt - act_rt
+            print("%s\t%s\t%s\t%s" % (self.zipfile, ied_rt, round(act_rt, 2), round(diff, 2)))
 
 class Datreader:
     # load info for all dat files into datinfo, each element is a Recording object
@@ -109,7 +141,7 @@ class Datreader:
         xmlname = datname[0:-3] + "xml"
         path = os.path.join(self.topdir, self.xmldir, dirname, xmlname)
         if not os.path.isfile(path):
-            print("unable to file file: '%s'" % path)
+            # print("unable to file file: '%s'" % path)
             return [None, None]
         tree = ET.parse(path)
         root = tree.getroot()
@@ -118,31 +150,22 @@ class Datreader:
         return(nChannels, samplingRate)
 
     def display(self):
+        print("\n** crcns.org hc-1 dataset files")
+        count = 0
         for dr in sorted(self.datinfo):
-            self.datinfo[dr].display()
+            count += 1
+            idstr = "%s. " % count
+            self.datinfo[dr].display(idstr)
 
+    def display_rt_diff(self):
+        Recording.display_recTimeDiff_header()
+        for dr in sorted(self.datinfo):
+            self.datinfo[dr].display_recTimeDiff()
 
-    # def calculate_rt(self):
-    #     # calculate recording time
-    #     rctimes = {}
-    #     for xmldir in self.datinfo:
-    #         rt = 0.0
-    #         cur_nChannels = None
-    #         for dati in self.datinfo[xmldir]:
-    #             datname, datsize, nChannels, samplingRate = dati
-    #             if nChannels is not None:
-    #                 timeMin = datsize / (2 * nChannels * samplingRate * 60.0)
-    #                 rt += timeMin
-    #                 if cur_nChannels is None:
-    #                     cur_nChannels = nChannels
-    #                 elif cur_nChannels != nChannels:
-    #                     print("nChannels in %s is not consistent, %s vs %s" % (datname, cur_nChannels, nChannels))
-    #         rctimes[xmldir] = rt
-    #     self.rctimes = rctimes
-    #     print("rctimes is:")
-    #     for xmldir in sorted(self.rctimes):
-    #         print("%s\t%s" % (xmldir, round(rctimes[xmldir], 2)))
-
+    def display_intraExtra_counts(self):
+        num_cells = len(self.datinfo)
+        print("%s cells, %s in intraExtra, %s not in intraExtra" % (num_cells, Recording.num_intraExtra, 
+            num_cells - Recording.num_intraExtra))
 
 def main():
     topdir = "data_size_info"
@@ -150,6 +173,8 @@ def main():
     xmldir = "xmlnrs"
     dr = Datreader(topdir, datinfofile, xmldir)
     dr.display()
+    dr.display_rt_diff()
+    dr.display_intraExtra_counts()
 
 
 if __name__ == "__main__":
