@@ -34,7 +34,7 @@ class ExcelData:
 class Recording:
     # stores info about particular cell (including all .dat files for that cell)
 
-    num_intraExtra = 0  # number of recordings that have a row in intraExtra.xls file
+    num_intraExtra = 0  # number of recordings that have a row in IntraExtra.xls file
 
     def __init__(self, zipfile, ie_data):
         self.zipfile = zipfile
@@ -164,7 +164,7 @@ class Datreader:
 
     def display_intraExtra_counts(self):
         num_cells = len(self.datinfo)
-        print("%s cells, %s in intraExtra, %s not in intraExtra" % (num_cells, Recording.num_intraExtra, 
+        print("%s cells, %s in IntraExtra, %s not in IntraExtra" % (num_cells, Recording.num_intraExtra, 
             num_cells - Recording.num_intraExtra))
 
 def main():
